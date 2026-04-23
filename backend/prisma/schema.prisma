@@ -1,0 +1,299 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  student
+  alumni
+  admin
+}
+
+enum VerificationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum AvailabilityStatus {
+  available
+  unavailable
+  busy
+}
+
+enum TagStatus {
+  active
+  deprecated
+}
+
+enum RequestStatus {
+  pending
+  accepted
+  declined
+  withdrawn
+}
+
+enum MessageType {
+  text
+  file
+}
+
+enum SessionStatus {
+  proposed
+  confirmed
+  cancelled
+  completed
+}
+
+enum VerificationStage {
+  format_check
+  document_check
+  admin_review
+  approved
+  rejected
+}
+
+enum NotificationEventType {
+  new_message
+  request_received
+  request_accepted
+  request_declined
+  session_proposed
+  session_confirmed
+  session_reminder
+  connection_flagged
+  re_engagement_nudge
+}
+
+enum DigestCadence {
+  daily
+  weekly
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  role            Role
+  fullName        String   @map("full_name")
+  profilePhotoUrl String?  @map("profile_photo_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  alumniProfile        AlumniProfile?
+  studentProfile       StudentProfile?
+  sentRequests         MentorshipRequest[]  @relation("StudentRequests")
+  receivedRequests     MentorshipRequest[]  @relation("AlumniRequests")
+  studentConnections   Connection[]         @relation("StudentConnections")
+  alumniConnections    Connection[]         @relation("AlumniConnections")
+  sentMessages         ChatMessage[]
+  proposedSessions     Session[]
+  notificationEvents   NotificationEvent[]
+  digestPreference     DigestPreference?
+  refreshTokens        RefreshToken[]
+  verificationReviews  VerificationRecord[] @relation("AdminReviewer")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  revoked   Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model DomainTag {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  status      TagStatus @default(active)
+  parentTagId String?   @map("parent_tag_id")
+
+  parentTag     DomainTag?      @relation("TagHierarchy", fields: [parentTagId], references: [id])
+  childTags     DomainTag[]     @relation("TagHierarchy")
+  alumniProfiles AlumniProfile[] @relation("AlumniDomainTags")
+  studentProfiles StudentProfile[] @relation("StudentInterestTags")
+
+  @@map("domain_tags")
+}
+
+model AlumniProfile {
+  id                     String             @id @default(uuid())
+  userId                 String             @unique @map("user_id")
+  university             String?
+  bio                    String?
+  company                String?
+  jobTitle               String?            @map("job_title")
+  experienceYears        Int?               @map("experience_years")
+  linkedinUrl            String?            @map("linkedin_url")
+  verificationStatus     VerificationStatus @default(pending) @map("verification_status")
+  availabilityStatus     AvailabilityStatus @default(available) @map("availability_status")
+  profileCompletenessScore Float            @default(0) @map("profile_completeness_score")
+  sessionsConducted      Int                @default(0) @map("sessions_conducted")
+  responseRate           Float              @default(0) @map("response_rate")
+  rankingScore           Float              @default(0) @map("ranking_score")
+  documentUrl            String?            @map("document_url")
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainTags        DomainTag[]       @relation("AlumniDomainTags")
+  verificationRecord VerificationRecord?
+
+  @@map("alumni_profiles")
+}
+
+model StudentProfile {
+  id             String @id @default(uuid())
+  userId         String @unique @map("user_id")
+  university     String?
+  graduationYear Int?   @map("graduation_year")
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interestTags DomainTag[] @relation("StudentInterestTags")
+
+  @@map("student_profiles")
+}
+
+model MentorshipRequest {
+  id         String        @id @default(uuid())
+  studentId  String        @map("student_id")
+  alumniId   String        @map("alumni_id")
+  message    String
+  goals      String?
+  status     RequestStatus @default(pending)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+  resolvedAt DateTime?     @map("resolved_at")
+
+  student    User       @relation("StudentRequests", fields: [studentId], references: [id])
+  alumni     User       @relation("AlumniRequests", fields: [alumniId], references: [id])
+  connection Connection?
+
+  @@map("mentorship_requests")
+}
+
+model Connection {
+  id                   String   @id @default(uuid())
+  requestId            String   @unique @map("request_id")
+  studentId            String   @map("student_id")
+  alumniId             String   @map("alumni_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  healthScore          Float    @default(1.0) @map("health_score")
+  healthScoreLastUpdated DateTime @default(now()) @map("health_score_last_updated")
+  isFlagged            Boolean  @default(false) @map("is_flagged")
+
+  request        MentorshipRequest @relation(fields: [requestId], references: [id])
+  student        User              @relation("StudentConnections", fields: [studentId], references: [id])
+  alumni         User              @relation("AlumniConnections", fields: [alumniId], references: [id])
+  messages       ChatMessage[]
+  sessions       Session[]
+  healthScoreLogs HealthScoreLog[]
+
+  @@map("connections")
+}
+
+model ChatMessage {
+  id           String      @id @default(uuid())
+  connectionId String      @map("connection_id")
+  senderId     String      @map("sender_id")
+  messageType  MessageType @default(text) @map("message_type")
+  content      String?
+  fileUrl      String?     @map("file_url")
+  fileName     String?     @map("file_name")
+  sentAt       DateTime    @default(now()) @map("sent_at")
+  deliveredAt  DateTime?   @map("delivered_at")
+
+  connection Connection @relation(fields: [connectionId], references: [id])
+  sender     User       @relation(fields: [senderId], references: [id])
+
+  @@map("chat_messages")
+}
+
+model Session {
+  id             String        @id @default(uuid())
+  connectionId   String        @map("connection_id")
+  proposedById   String        @map("proposed_by_id")
+  proposedAt     DateTime      @default(now()) @map("proposed_at")
+  slotStart      DateTime      @map("slot_start")
+  slotEnd        DateTime      @map("slot_end")
+  status         SessionStatus @default(proposed)
+  meetingLink    String?       @map("meeting_link")
+  studentAttended Boolean?     @map("student_attended")
+  alumniAttended  Boolean?     @map("alumni_attended")
+  confirmedAt    DateTime?     @map("confirmed_at")
+  version        Int           @default(0)
+
+  connection Connection @relation(fields: [connectionId], references: [id])
+  proposedBy User       @relation(fields: [proposedById], references: [id])
+
+  @@map("sessions")
+}
+
+model NotificationEvent {
+  id          String                @id @default(uuid())
+  userId      String                @map("user_id")
+  eventType   NotificationEventType @map("event_type")
+  payload     Json
+  isDigested  Boolean               @default(false) @map("is_digested")
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_events")
+}
+
+model DigestPreference {
+  userId          String        @id @map("user_id")
+  cadence         DigestCadence @default(daily)
+  lastDigestSentAt DateTime?   @map("last_digest_sent_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("digest_preferences")
+}
+
+model VerificationRecord {
+  id              String            @id @default(uuid())
+  alumniProfileId String            @unique @map("alumni_profile_id")
+  stage           VerificationStage @default(format_check)
+  rejectionReason String?           @map("rejection_reason")
+  submittedAt     DateTime          @default(now()) @map("submitted_at")
+  reviewedAt      DateTime?         @map("reviewed_at")
+  reviewedBy      String?           @map("reviewed_by")
+
+  alumniProfile AlumniProfile @relation(fields: [alumniProfileId], references: [id], onDelete: Cascade)
+  reviewer      User?         @relation("AdminReviewer", fields: [reviewedBy], references: [id])
+
+  @@map("verification_records")
+}
+
+model HealthScoreLog {
+  id                      String   @id @default(uuid())
+  connectionId            String   @map("connection_id")
+  score                   Float
+  messageFrequency        Float    @map("message_frequency")
+  sessionAttendanceRate   Float    @map("session_attendance_rate")
+  avgResponseLatencySeconds Float  @map("avg_response_latency_seconds")
+  computedAt              DateTime @default(now()) @map("computed_at")
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@map("health_score_logs")
+}

@@ -1,0 +1,379 @@
+@startuml AlumniConnect_ClassDiagram
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+
+' ══════════════════════════════════════════════════════
+'  DOMAIN ENTITIES (Prisma Models)
+' ══════════════════════════════════════════════════════
+
+package "Domain Entities" {
+
+  class User {
+    +id: string
+    +email: string
+    +passwordHash: string
+    +role: Role
+    +fullName: string
+    +profilePhotoUrl: string?
+    +createdAt: Date
+    +updatedAt: Date
+  }
+
+  enum Role {
+    student
+    alumni
+    admin
+  }
+
+  class StudentProfile {
+    +id: string
+    +userId: string
+    +university: string?
+    +graduationYear: number?
+  }
+
+  class AlumniProfile {
+    +id: string
+    +userId: string
+    +university: string?
+    +company: string?
+    +jobTitle: string?
+    +bio: string?
+    +experienceYears: number?
+    +linkedinUrl: string?
+    +verificationStatus: VerificationStatus
+    +availabilityStatus: string
+    +profileCompletenessScore: number
+    +sessionsConducted: number
+    +responseRate: number
+    +rankingScore: number
+    +documentUrl: string?
+  }
+
+  enum VerificationStatus {
+    pending
+    format_check
+    document_check
+    approved
+    rejected
+  }
+
+  class MentorshipRequest {
+    +id: string
+    +studentId: string
+    +alumniId: string
+    +message: string
+    +goals: string?
+    +status: RequestStatus
+    +createdAt: Date
+  }
+
+  enum RequestStatus {
+    pending
+    accepted
+    declined
+    withdrawn
+  }
+
+  class Connection {
+    +id: string
+    +requestId: string
+    +studentId: string
+    +alumniId: string
+    +healthScore: number
+    +flagged: boolean
+    +createdAt: Date
+  }
+
+  class Message {
+    +id: string
+    +connectionId: string
+    +senderId: string
+    +content: string
+    +type: MessageType
+    +fileUrl: string?
+    +createdAt: Date
+  }
+
+  enum MessageType {
+    text
+    file
+    system
+  }
+
+  class Session {
+    +id: string
+    +connectionId: string
+    +proposerId: string
+    +slotStart: Date
+    +slotEnd: Date
+    +status: SessionStatus
+    +meetingUrl: string?
+    +version: number
+  }
+
+  enum SessionStatus {
+    proposed
+    confirmed
+    cancelled
+    completed
+  }
+
+  class VerificationRecord {
+    +id: string
+    +alumniProfileId: string
+    +stage: string
+    +rejectionReason: string?
+    +submittedAt: Date
+    +reviewedAt: Date?
+    +reviewedBy: string?
+  }
+
+  class Notification {
+    +id: string
+    +userId: string
+    +type: string
+    +message: string
+    +read: boolean
+    +createdAt: Date
+  }
+
+  class RefreshToken {
+    +id: string
+    +token: string
+    +userId: string
+    +expiresAt: Date
+    +revoked: boolean
+  }
+}
+
+' ══════════════════════════════════════════════════════
+'  AUTH SERVICE
+' ══════════════════════════════════════════════════════
+
+package "Auth" {
+  class AuthService {
+    +register(email, password, role, fullName, extraData?): Promise<AuthResult>
+    +login(email, password): Promise<AuthResult>
+    +refreshToken(token): Promise<AuthResult>
+    +revokeToken(token): Promise<void>
+    +getProfile(userId): Promise<User>
+  }
+}
+
+' ══════════════════════════════════════════════════════
+'  ALUMNI DIRECTORY & RANKING
+' ══════════════════════════════════════════════════════
+
+package "Alumni Directory" {
+  class AlumniDirectoryService {
+    +listAlumni(studentId, filters, page, limit): Promise<AlumniProfile[]>
+  }
+
+  class RankingScoreEngine {
+    +recompute(alumniId): Promise<void>
+    +updateResponseRate(alumniId): Promise<void>
+    -computeScore(profile): number
+  }
+
+  AlumniDirectoryService ..> RankingScoreEngine : uses
+}
+
+' ══════════════════════════════════════════════════════
+'  MENTORSHIP FACADE & SUB-SERVICES
+' ══════════════════════════════════════════════════════
+
+package "Mentorship" {
+  class MentorshipFacade {
+    +submitRequest(studentId, alumniId, message, goals?): Promise<MentorshipRequest>
+    +acceptRequest(requestId, alumniId): Promise<Connection>
+    +declineRequest(requestId, alumniId): Promise<void>
+    +withdrawRequest(requestId, studentId): Promise<void>
+    +listRequests(userId, role): Promise<MentorshipRequest[]>
+    +listConnections(userId): Promise<Connection[]>
+    +getConnection(connectionId, userId): Promise<Connection>
+  }
+
+  class RequestService {
+    +submit(studentId, alumniId, message, goals?): Promise<MentorshipRequest>
+    +accept(requestId, alumniId): Promise<Connection>
+    +decline(requestId, alumniId): Promise<void>
+    +withdraw(requestId, studentId): Promise<void>
+    +listForUser(userId, role): Promise<MentorshipRequest[]>
+    -enforceStateMachine(current, next): void
+  }
+
+  MentorshipFacade --> RequestService : delegates to
+}
+
+' ══════════════════════════════════════════════════════
+'  SESSION SERVICE & MEETING PROVIDER STRATEGY
+' ══════════════════════════════════════════════════════
+
+package "Sessions" {
+  interface MeetingProvider {
+    +createMeeting(sessionId, title, start, end): Promise<MeetingResult>
+  }
+
+  class MockMeetingProvider {
+    +createMeeting(sessionId, title, start, end): Promise<MeetingResult>
+  }
+
+  class GoogleMeetProvider {
+    +createMeeting(sessionId, title, start, end): Promise<MeetingResult>
+  }
+
+  class SessionService {
+    -provider: MeetingProvider
+    +propose(connectionId, proposerId, slot): Promise<Session>
+    +confirm(sessionId, userId): Promise<Session>
+    +cancel(sessionId, userId): Promise<Session>
+    +complete(sessionId): Promise<Session>
+    -checkOptimisticLock(session, version): void
+  }
+
+  MeetingProvider <|.. MockMeetingProvider
+  MeetingProvider <|.. GoogleMeetProvider
+  SessionService --> MeetingProvider : uses (Strategy)
+  MentorshipFacade --> SessionService : delegates to
+}
+
+' ══════════════════════════════════════════════════════
+'  CHAT SERVICE
+' ══════════════════════════════════════════════════════
+
+package "Chat" {
+  class ChatService {
+    +sendMessage(connectionId, senderId, content, type, fileUrl?): Promise<Message>
+    +listMessages(connectionId, userId, limit, before?): Promise<Message[]>
+  }
+}
+
+' ══════════════════════════════════════════════════════
+'  VERIFICATION PIPELINE (Chain of Responsibility)
+' ══════════════════════════════════════════════════════
+
+package "Admin Verification" {
+  interface VerificationHandler {
+    +handle(context: VerificationContext): Promise<VerificationResult>
+    +setNext(handler: VerificationHandler): VerificationHandler
+  }
+
+  abstract class BaseVerificationHandler {
+    -next: VerificationHandler?
+    +setNext(handler): VerificationHandler
+    #passToNext(context): Promise<VerificationResult>
+  }
+
+  class FormatValidationHandler {
+    +handle(context): Promise<VerificationResult>
+  }
+
+  class DocumentCheckHandler {
+    +handle(context): Promise<VerificationResult>
+  }
+
+  class AdminApprovalHandler {
+    +handle(context): Promise<VerificationResult>
+  }
+
+  VerificationHandler <|.. BaseVerificationHandler
+  BaseVerificationHandler <|-- FormatValidationHandler
+  BaseVerificationHandler <|-- DocumentCheckHandler
+  BaseVerificationHandler <|-- AdminApprovalHandler
+  FormatValidationHandler --> DocumentCheckHandler : next
+  DocumentCheckHandler --> AdminApprovalHandler : next
+}
+
+' ══════════════════════════════════════════════════════
+'  EVENT BUS & LISTENERS (Observer)
+' ══════════════════════════════════════════════════════
+
+package "Events" {
+  class EventBus {
+    -listeners: Map<string, EventHandler[]>
+    +on(event, handler): void
+    +emit(event, data): Promise<void>
+  }
+
+  class NotificationListener {
+    +onRequestAccepted(payload): Promise<void>
+    +onSessionConfirmed(payload): Promise<void>
+  }
+
+  class ChatProvisionListener {
+    +onRequestAccepted(payload): Promise<void>
+  }
+
+  class EmailDispatchListener {
+    +onRequestAccepted(payload): Promise<void>
+    +onSessionConfirmed(payload): Promise<void>
+  }
+
+  class HealthScoreService {
+    +updateConnectionHealth(connectionId): Promise<void>
+    +flagConnection(connectionId): Promise<void>
+  }
+
+  EventBus --> NotificationListener : notifies
+  EventBus --> ChatProvisionListener : notifies
+  EventBus --> EmailDispatchListener : notifies
+  RequestService --> EventBus : emits request.accepted
+  SessionService --> EventBus : emits session.confirmed
+}
+
+' ══════════════════════════════════════════════════════
+'  EMAIL SERVICE
+' ══════════════════════════════════════════════════════
+
+package "Email" {
+  class EmailService {
+    +sendRequestAccepted(to, studentName, alumniName): Promise<void>
+    +sendSessionConfirmed(to, sessionDetails): Promise<void>
+  }
+
+  EmailDispatchListener --> EmailService : calls
+}
+
+' ══════════════════════════════════════════════════════
+'  ENTITY RELATIONSHIPS
+' ══════════════════════════════════════════════════════
+
+User "1" -- "0..1" StudentProfile : has >
+User "1" -- "0..1" AlumniProfile : has >
+User "1" -- "*" RefreshToken : owns >
+User "1" -- "*" Notification : receives >
+
+AlumniProfile "1" -- "0..1" VerificationRecord : tracks >
+
+MentorshipRequest "1" -- "1" Connection : creates >
+MentorshipRequest "*" -- "1" User : student
+MentorshipRequest "*" -- "1" User : alumni
+
+Connection "1" -- "*" Message : contains >
+Connection "1" -- "*" Session : has >
+
+User "1" -- "*" MentorshipRequest : sends >
+AlumniProfile ..> VerificationStatus : uses
+MentorshipRequest ..> RequestStatus : uses
+Session ..> SessionStatus : uses
+Message ..> MessageType : uses
+
+' ══════════════════════════════════════════════════════
+'  SERVICE → ENTITY USAGE
+' ══════════════════════════════════════════════════════
+
+AuthService ..> User : creates / reads
+AuthService ..> StudentProfile : creates
+AuthService ..> AlumniProfile : creates
+AuthService ..> RefreshToken : manages
+
+RankingScoreEngine ..> AlumniProfile : updates score
+RequestService ..> MentorshipRequest : manages
+RequestService ..> Connection : creates
+ChatService ..> Message : creates / reads
+SessionService ..> Session : manages
+
+@enduml
