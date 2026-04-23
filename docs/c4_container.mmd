@@ -1,0 +1,38 @@
+C4Container
+  title Container Diagram for AlumniConnect
+
+  Person(student, "Student (Mentee)", "University student seeking mentorship")
+  Person(alumni, "Alumni (Mentor)", "Graduated alumni providing mentorship")
+  Person(admin, "University Admin", "Platform Administrator")
+
+  System_Boundary(c1, "AlumniConnect Platform") {
+    Container(webApp, "Web Application", "React 18, TypeScript, Vite", "Provides SPA interfaces for students, alumni, and admins.")
+    Container(apiServer, "API Server", "Node.js, Express, TypeScript", "Core backend services enforcing state machines and routing requests.")
+    Container(wsServer, "WebSocket Server", "Node.js, ws", "Handles persistent real-time chat connections and presence.")
+    Container(jobWorker, "Background Worker", "Node.js, BullMQ", "Processes scheduled session reminders and computes health scores.")
+    
+    ContainerDb(db, "Primary Database", "PostgreSQL 16", "Stores users, alumni profiles, connection requests, sessions, and chat history.")
+    ContainerDb(redis, "In-Memory Store / PubSub", "Redis 7", "Handles WebSocket fan-out, presence tracking, and BullMQ job management.")
+  }
+
+  System_Ext(emailSystem, "Email System", "Nodemailer/Ethereal", "External transactional email provider.")
+  System_Ext(meetingProvider, "Meeting Provider", "Mock Strategy / Google Meet", "External virtual meeting link provider.")
+
+  Rel(student, webApp, "Visits and interacts with", "HTTPS")
+  Rel(alumni, webApp, "Visits and interacts with", "HTTPS")
+  Rel(admin, webApp, "Visits and interacts with", "HTTPS")
+
+  Rel(webApp, apiServer, "Makes API calls to", "JSON/HTTPS")
+  Rel(webApp, wsServer, "Connects for real-time chat via", "WSS")
+
+  Rel(apiServer, db, "Reads from and writes to", "Prisma/TCP")
+  Rel(apiServer, redis, "Publishes events and enqueues jobs to", "TCP")
+  Rel(wsServer, redis, "Subscribes to events and tracks presence", "TCP")
+  Rel(wsServer, db, "Persists chat messages to", "Prisma/TCP")
+
+  Rel(jobWorker, redis, "Polls for and manages jobs", "BullMQ/TCP")
+  Rel(jobWorker, db, "Updates session/health status in", "Prisma/TCP")
+
+  Rel(apiServer, emailSystem, "Dispatches confirmation emails via", "SMTP")
+  Rel(jobWorker, emailSystem, "Dispatches scheduled reminders/digests via", "SMTP")
+  Rel(apiServer, meetingProvider, "Generates session links through", "HTTPS")

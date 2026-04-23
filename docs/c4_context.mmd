@@ -1,0 +1,21 @@
+C4Context
+  title System Context Diagram for AlumniConnect
+
+  Person(student, "Student (Mentee)", "University student seeking mentorship, browsing profiles, and scheduling sessions.")
+  Person(alumni, "Alumni (Mentor)", "Graduated alumni providing mentorship and maintaining their availability.")
+  Person(admin, "University Admin", "Manages platform integrity, verifies alumni, and views metrics.")
+
+  System(alumniConnect, "AlumniConnect Platform", "Mentorship platform connecting students with alumni through chat, sessions, and notifications.")
+
+  System_Ext(emailSystem, "Email System", "Transactional email provider (e.g., Nodemailer/Ethereal) for dispatching digests and notifications.")
+  System_Ext(meetingProvider, "Meeting Provider", "Calendar/Meet integration for virtual session links (e.g., Google Meet).")
+
+  Rel(student, alumniConnect, "Browses directory, sends requests, chats, and schedules sessions via", "HTTPS/WSS")
+  Rel(alumni, alumniConnect, "Manages profile, accepts requests, chats, and conducts sessions via", "HTTPS/WSS")
+  Rel(admin, alumniConnect, "Verifies alumni and views system metrics via", "HTTPS")
+
+  Rel(alumniConnect, emailSystem, "Sends confirmations, reminders, and notifications via", "SMTP")
+  Rel(alumniConnect, meetingProvider, "Generates virtual meeting links via", "HTTPS/API")
+  
+  Rel(emailSystem, student, "Delivers emails to")
+  Rel(emailSystem, alumni, "Delivers emails to")

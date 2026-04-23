@@ -1,0 +1,41 @@
+C4Component
+  title Component Diagram for API Server Container
+
+  Container_Boundary(apiServer, "API Server (Node.js/Express)") {
+    Component(authService, "Auth Service", "TypeScript", "Handles registration, login, JWT issuance, and RBAC enforcement.")
+    Component(directoryService, "Directory Service", "TypeScript", "Exposes alumni catalogue, handles filtering, and ranking queries.")
+    Component(mentorshipFacade, "Mentorship Facade", "TypeScript", "Single controller entry point for request, connection, and session coordination.")
+    Component(requestService, "Request Service", "TypeScript", "Enforces the mentorship request state machine.")
+    Component(sessionService, "Session Service", "TypeScript", "Validates slots via optimistic locking and confirms sessions.")
+    
+    Component(eventBus, "Internal EventBus", "TypeScript", "In-process observer pattern broker for domain events.")
+    Component(requestListeners, "Request Listeners", "TypeScript", "Awaits request.accepted to trigger chat, email, and notification side-effects.")
+    Component(verificationPipeline, "Verification Pipeline", "TypeScript", "Chain of Responsibility for alumni profile validation and admin approval.")
+
+    Component(userRepo, "PrismaUserRepository", "TypeScript", "Abstracts user data access behind interface.")
+    Component(alumniRepo, "PrismaAlumniRepository", "TypeScript", "Abstracts alumni profile and ranking access behind interface.")
+  }
+
+  ContainerDb(db, "Primary Database", "PostgreSQL 16", "Stores entities natively")
+  ContainerDb(redis, "In-Memory Store", "Redis 7", "PubSub and queues")
+
+  %% Controller -> Facade / Services
+  Rel(mentorshipFacade, requestService, "Delegates state transitions to")
+  Rel(mentorshipFacade, sessionService, "Delegates scheduling to")
+  
+  %% Observer Pattern
+  Rel(requestService, eventBus, "Emits request.accepted event to")
+  Rel(eventBus, requestListeners, "Notifies asynchronously")
+
+  %% Inter-service connections
+  Rel(requestListeners, redis, "Publishes chat welcome message via")
+  
+  %% Repository usage
+  Rel(authService, userRepo, "Uses")
+  Rel(directoryService, alumniRepo, "Uses")
+  Rel(verificationPipeline, alumniRepo, "Updates status in")
+  Rel(requestService, db, "Updates request status via", "Prisma")
+  Rel(sessionService, db, "Validates slot version via", "Prisma")
+
+  Rel(userRepo, db, "Reads/Writes via", "Prisma")
+  Rel(alumniRepo, db, "Reads/Writes via", "Prisma")
